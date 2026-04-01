@@ -78,11 +78,7 @@ Quarto 1.4 or later. Install from [quarto.org](https://quarto.org).
 
 ## Related projects
 
-This is Project 1 in a planned three-part series on Bayesian position sizing:
-
-- **Project 1 (this document):** Bayesian Kelly under single-asset uncertainty
-- **Project 2 (planned):** Multi-asset Kelly — portfolio allocation with correlated returns
-- **Project 3 (planned):** Regime-aware Kelly — GARCH-EVT volatility regimes and tail-adjusted sizing
+None
 
 ---
 
