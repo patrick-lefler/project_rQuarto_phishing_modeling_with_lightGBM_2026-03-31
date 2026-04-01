@@ -48,9 +48,21 @@ rQuarto_phishing_model_with_lightGBM/
 R 4.3 or later with the following packages:
 
 ```r
-
-
-
+library(bonsai)
+library(forcats)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(lightgbm)
+library(plotly)
+library(probably)
+library(scales)
+library(sessioninfo)
+library(tidyverse)
+library(tidymodels)
+library(tidyr)
+library(vip)
+library(dplyr)
 ```
 
 Quarto 1.4 or later. Install from [quarto.org](https://quarto.org).
