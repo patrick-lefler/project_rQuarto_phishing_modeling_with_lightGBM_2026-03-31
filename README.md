@@ -19,15 +19,19 @@ Additionally, Variable Importance Plots (VIP) are employed using the R `vip` lib
 
 ---
 
-## Key concepts
+## Key insights
 
-**Bayesian updating** — Prior beliefs about the win probability are updated using observed wins and losses via Bayes' theorem. For a Binomial likelihood with a Beta prior, the posterior is analytically tractable: Beta(α + wins, β + losses).
+**Infrastructure-First Detection**
+Traditional phishing filters often rely on "blacklists" of known bad domains or keywords in an email. This project proves that URL Infrastructure (how a web address is built) is a more stable and reliable signal. By analyzing 41 "digital fingerprints," we can identify a malicious site even if it has never been reported before, effectively stopping "Zero-Day" attacks at the perimeter.
 
-**Kelly fraction distribution** — Rather than computing a single Kelly recommendation, 10,000 values of the win probability are drawn from the posterior. Each produces a Kelly fraction. The resulting distribution reveals the full range of defensible stakes given the available evidence.
+**High-Confidence Risk Posture (99.2% Recall)**
+In cybersecurity, missing one attack is far more costly than a false alarm. This project successfully optimized a "Secure-First" stance, achieving a 99.2% Recall rate. This means the model captures nearly every phishing attempt in the dataset, providing a robust safety net for an organization’s most vulnerable entry point: the user's browser.
 
-**Percentile-based staking** — The p25 Kelly fraction — the stake that is optimal if the true win rate is anywhere in the upper 75% of the uncertainty range — is proposed as the recommended default. The gap between p25 and p50 (the overconfidence premium) quantifies the cost of treating an estimated probability as a known one.
+**Transparency via Feature Importance**
+Machine learning is often criticized for being a "black box," but this project prioritizes Explainable AI. Using Variable Importance Plots, we identified exactly which traits—such as URL Randomness (Entropy) and Subdomain Complexity—drive the risk score. This transparency allows risk stakeholders to understand the "Why" behind every block, creating a defensible and auditable security process.
 
-**Scenario 4: Optimism meets reality** — The most important scenario in the document. Identical inputs to Scenario 1, but the wealth simulation uses a true win rate of 52% rather than the posterior mean of 56.3%. This is the out-of-sample test: full Kelly degrades badly; the p25 stake survives.
+**Strategic Efficiency with LightGBM**
+By using the LightGBM algorithm, this project demonstrates that enterprise-level security doesn't require massive computing power. The model is "Light" enough to process hundreds of thousands of network logs in seconds while remaining sophisticated enough to detect non-linear patterns that simpler models would miss. This makes it a scalable solution for real-time traffic monitoring.
 
 ---
 
