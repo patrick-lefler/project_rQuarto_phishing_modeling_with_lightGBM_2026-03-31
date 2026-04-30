@@ -1,98 +1,63 @@
 # Infrastructure-Based, Machine-Learning Phishing Detection
 
-**Author:** Patrick Lefler  
-**Published:** 2026-03-31  
-**Project #:** 11 </br>
-**Tools:** R | `quarto`  `tidyverse` `tidymodels`  `lightGBM`  `probably`  `vip`
+> Proactive phishing defense using URL infrastructure fingerprints, LightGBM gradient boosting, and the tidymodels ecosystem in R.
+
+**Author:** Patrick Lefler
+**Published:** March 31, 2026
+**Rendered:** 
+
+---
+
+## Project Introduction
+
+> Shifts phishing detection from reactive block-listing to proactive risk-patterning by analyzing 41 URL infrastructure features — including character entropy, subdomain depth, and path complexity — using a LightGBM model trained on 247,950 labeled URLs.
 
 ---
 
 ## Overview
 
-This project sets up a proactive defense against phishing. It shifts the focus from temporary email content to the digital fingerprints of URLs. The project utilizes a robust dataset with 41 unique features. These include character entropy, subdomain depth, and path complexity. This approach goes beyond just using a simple block list. It aims to identify the core patterns of malicious intent in a domain’s setup. </br> 
-
-The `lightGBM` (Light Gradient Boosting Machine) package is utilized with the <code>bonsai</code> engine in R's `tidymodels` ecosystem. This helps manage complex data at scale. `LightGBM` was chosen for its leaf-wise tree growth strategy. This method is great at spotting subtle, non-linear connections between URL features, that traditional models often miss. It also offers the efficiency needed for real-time network log analysis. </br> 
-
-The resulting model gives a clear and adjustable security posture. The R `probably` library is used to switch between two models. The secure-first stance aims to catch nearly all threats. The user-centric stance focuses on reducing false positives, which helps boost productivity. </br> 
-
-Additionally, Variable Importance Plots (VIP) are employed using the R `vip` library for transparency. This turns the machine learning black box into a clear audit trail. Readers can spot indicators that influence risk scores. These include high URL entropy and strange directory structures. This makes sure defensive choices are based on data and match an organization's risk tolerance.
+This project trains a LightGBM classifier via the `bonsai` engine inside R's `tidymodels` framework to identify phishing URLs based on structural infrastructure signals rather than email content or static block lists. The dataset, sourced from Mendeley Data, contains 247,950 instances across 41 engineered features. The model is evaluated under two distinct security postures: a secure-first stance optimized for maximum recall (99.2%), and a user-centric stance that minimizes false positives to reduce operational friction. Variable Importance Plots generated with the `vip` library provide an explainable audit trail, translating the gradient-boosting black box into actionable intelligence for risk stakeholders.
 
 ---
 
-## Key insights
+## Tech Stack
 
-**Infrastructure-First Detection**
-Traditional phishing filters often rely on "blacklists" of known bad domains or keywords in an email. This project proves that URL Infrastructure (how a web address is built) is a more stable and reliable signal. By analyzing 41 "digital fingerprints," we can identify a malicious site even if it has never been reported before, effectively stopping "Zero-Day" attacks at the perimeter.
-
-**High-Confidence Risk Posture (99.2% Recall)**
-In cybersecurity, missing one attack is far more costly than a false alarm. This project successfully optimized a "Secure-First" stance, achieving a 99.2% Recall rate. This means the model captures nearly every phishing attempt in the dataset, providing a robust safety net for an organization’s most vulnerable entry point: the user's browser.
-
-**Transparency via Feature Importance**
-Machine learning is often criticized for being a "black box," but this project prioritizes Explainable AI. Using Variable Importance Plots, we identified exactly which traits—such as URL Randomness (Entropy) and Subdomain Complexity—drive the risk score. This transparency allows risk stakeholders to understand the "Why" behind every block, creating a defensible and auditable security process.
-
-**Strategic Efficiency with LightGBM**
-By using the LightGBM algorithm, this project demonstrates that enterprise-level security doesn't require massive computing power. The model is "Light" enough to process hundreds of thousands of network logs in seconds while remaining sophisticated enough to detect non-linear patterns that simpler models would miss. This makes it a scalable solution for real-time traffic monitoring.
+- **Language:** R
+- **Framework:** [Quarto](https://quarto.org/)
+- **Primary Libraries:** tidymodels, lightgbm, bonsai, probably, vip, ggplot2, kableExtra, plotly
+- **Deployment / Output:** Rendered HTML Document (self-contained)
 
 ---
 
-## Repository structure
+## Repository Structure
 
 ```
-rQuarto_phishing_model_with_lightGBM/
-├── index.qmd                  # Main Quarto document
-├── _brand.yml                 # Brand colours and typography
-├── _quarto.yml                  
-├── README.md                  # This file
-└── docs/                        
-    └── index.html             # Rendered HTML output (GitHub Pages)
-└──  data
-    └──  mendeley_phishing_dataset.csv  # Downloaded data
-
+├── data/               # Raw phishing dataset (mendeley_phishing_dataset.csv)
+├── scripts/            # Helper R scripts
+├── models/             # Saved model objects (.rds)
+├── output/             # Rendered HTML files
+├── _brand.yml          # Brand configuration
+└── index.qmd           # Main Quarto entry point
 ```
 
 ---
 
-## Reproducing the analysis
+## Key Findings
 
-### Prerequisites
+**URL infrastructure outperforms content analysis as a phishing signal.** The top predictors — URL entropy, subdomain depth, and total path length — are structural properties that remain stable even when attackers rotate email copy or spoof brand logos. This makes the model resilient to surface-level evasion tactics.
 
-R 4.3 or later with the following packages:
+**The model achieves a 99.2% detection rate (Recall) at the secure stance**, with a ROC AUC of 0.963. At the user-centric threshold, precision holds at 94.5% — meaning fewer than 6 in 100 flagged URLs are false positives, keeping SOC workloads manageable.
 
-```r
-library(bonsai)
-library(forcats)
-library(ggplot2)
-library(knitr)
-library(kableExtra)
-library(lightgbm)
-library(plotly)
-library(probably)
-library(scales)
-library(sessioninfo)
-library(tidyverse)
-library(tidymodels)
-library(tidyr)
-library(vip)
-library(dplyr)
-```
-
-Quarto 1.4 or later. Install from [quarto.org](https://quarto.org).
-
-## Design standards
-
-- **Theme:** Quarto Sandstone (Bootswatch)
-- **Brand:** Custom palette defined in `_brand.yml` — off-white background, dark grey text, blue/red/green accent ramps
-- **Typography:** Roboto (Google Fonts, via `_brand.yml`)
-- **Visualizations:** `ggplotly()` for density overlays, `plot_ly()` / `add_bars()` for Kelly histograms and trajectory panels
-- **Tables:** `kbl()` + `kable_styling()` with striped, hover, condensed, responsive bootstrap options
-- **No Shiny, no OJS** — document renders to a standalone HTML file that works from the filesystem or any web host
-
-## Related projects
-
-None
+**Phishers are actively mimicking legitimate cloud infrastructure.** The LightGBM engine identified that attackers increasingly replicate the directory depth patterns of services like AWS and Azure. Traditional signature-based filters miss this pattern entirely; the model does not.
 
 ---
 
 ## License
 
-MIT License. You are free to use, adapt, and republish this analysis with attribution.
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+---
+
+## Contact
+
+Patrick Lefler — [LinkedIn](https://www.linkedin.com/in/patricklefler/) | [GitHub Pages](https://patrick-lefler.github.io) | [Substack](https://substack.com/@pflefler)
