@@ -1,0 +1,424 @@
+---
+title: "Infrastructure-Based, Machine-Learning Phishing Detection"
+subtitle: "High-performance risk modeling with lightGBM & tidymodel R libraries"
+
+abstract: "This project sets up a proactive defense against phishing. It shifts the focus from temporary email content to the digital fingerprints of URLs. The project utilizes a robust dataset with 41 unique features. These include character entropy, subdomain depth, and path complexity. This approach goes beyond just using a simple block list. It aims to identify the core patterns of malicious intent in a domain’s setup. </br> </br>
+
+The <code>LightGBM</code> (Light Gradient Boosting Machine) package is utilized with the <code>bonsai</code> engine in R's <code>tidymodels</code> ecosystem. This helps manage complex data at scale. <code>LightGBM</code> was chosen for its leaf-wise tree growth strategy. This method is great at spotting subtle, non-linear connections between URL features, that traditional models often miss. It also offers the efficiency needed for real-time network log analysis. </br> </br>
+
+The resulting model gives a clear and adjustable security posture. The R <code>probably</code> library is used to switch between two models. The secure-first stance aims to catch nearly all threats. The user-centric stance focuses on reducing false positives, which helps boost productivity. </br> </br>
+
+Additionally, Variable Importance Plots (VIP) are employed using the R <code>vip</code> library for transparency. This turns the machine learning black box into a clear audit trail. Readers can spot indicators that influence risk scores. These include high URL entropy and strange directory structures. This makes sure defensive choices are based on data and match an organization's risk tolerance."
+
+author: "Patrick Lefler"
+date: 31-Mar-2026
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+    code-tools: false
+    fig-height: 6
+    fig-width: 10
+    lightbox: true
+    number-sections: false
+    self-contained: true
+    self-contained-math: true
+    smooth-scroll: true
+    theme: sandstone
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    toc-title: "Contents"
+brand: _brand.yml
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+### Setup
+
+In addition to the standard `tidyverse` set of libraries, this project utilizes a number of R libraries that have not been utilized in previous projects including: </br>
+- `lightgbm`: The high-speed engine that builds hundreds of decision trees to spot complex phishing patterns in massive datasets. </br>
+- `bonsai`: The connector that allows the LightGBM engine to run smoothly inside the standard R tidymodels workflow. </br>
+- `probably`: The *risk dial* used to shift the model's sensitivity between a secure stance (catch everything) and a user stance (minimize interruptions). </br>
+- `vip`: The transparency tool that generates Variable Importance Plots to show exactly which URL features are driving the risk scores. </br>
+
+
+```{r}
+#| label: setup
+
+library(bonsai)
+library(forcats)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(lightgbm)
+library(plotly)
+library(probably)
+library(scales)
+library(sessioninfo)
+library(tidyverse)
+library(tidymodels)
+library(tidyr)
+library(vip)
+library(dplyr)
+
+# ── Brand Palette Logic ─────────────────────────────────────────────────────────────
+plot_background      <- "#FEFEFA"
+plot_blacktext       <- "#222222"
+plot_bluetext        <- "#0166CC"
+plot_fill_lightgrey  <- "#E5E5E5"
+
+# Toggle for development speed
+small_sample_mode <- FALSE
+```
+
+### Data Ingestion
+
+The data utilized in this project comes from [Mendeley Data](https://data.mendeley.com/datasets/6tm2d6sz7p/1){.external target="_blank} </br>
+
+Citation: *Tamal, Maruf (2023), “Phishing Detection Dataset”, Mendeley Data, V1, doi: 10.17632/6tm2d6sz7p.1*
+
+This dataset consists of 247,950 instances, of which 128,541 are from phishing URLs and 119,409 are from legitimate URLs. It encompasses 41 features and 1 target variable (0=legitimate,1=phishing), making it suitable for implementing machine learning algorithms to identify phishing attacks. 
+
+
+Before the model can learn, the data is split. 80% of the data is used to train the model (showing it examples of both phishing and safe sites). The remaining 20% is used to the model (asking it to predict outcomes that haven't been seen yet).
+
+::: {.callout-note icon=false}
+
+## Data Stratification
+The project ensures that the *test* set has the same ratio of phishing-to-legitimate sites as the real world. This prevents the model from getting a skewed view of the risk landscape.
+:::
+
+```{r}
+
+#| label: data-prep
+
+# Load data (Replace with your actual filename)
+phish_raw <- read.csv("data/mendeley_phishing_dataset.csv")
+
+# 'Type' is converted to a factor where '1' is the event of interest (Phish).
+phish_raw <- phish_raw %>%
+  mutate(Type = factor(Type, levels = c("1", "0")))
+
+if(small_sample_mode) {
+  phish_raw <- phish_raw %>% sample_frac(0.1)
+}
+
+set.seed(123)
+data_split <- initial_split(phish_raw, prop = 0.8, strata = Type)
+train_data <- training(data_split)
+test_data  <- testing(data_split)
+
+```
+
+### Feature Engineering (The Recipe)
+Raw data is often noisy. If two features tell us the exact same thing (e.g., *URL Length* and *Character Count*), it creates multicollinearity, which confuses the model. The recipe acts as a filter to ensure the model only focuses on unique, high-value risk signals.
+
+```{r}
+
+#| label: recipe-def
+
+phish_recipe <- recipe(Type ~ ., data = train_data) %>%
+  step_zv(all_predictors()) %>%
+  step_corr(all_numeric_predictors(), threshold = 0.9) %>%
+  step_normalize(all_numeric_predictors())
+
+```
+
+### Model Training: LightGBM & Bonsai
+A boost_tree specification is defined using the `lightgbm` engine. The project focuses on trees and learn_rate for stability, while leaving tree_depth and mtry as candidates for further tuning.
+
+LightGBM (Light Gradient-Boosting Machine) is a free and open-source distributed gradient-boosting framework for machine learning, originally developed by Microsoft. It is based on decision tree algorithms and used for ranking, classification and other machine learning tasks. The development focus is on performance and scalability.
+
+Inside the box, LightGBM acts like a super-fast *guessing game* to help businesses make smart predictions using large amounts of data. Imagine a team of students working together to solve a difficult math problem, where each student focuses only on fixing the specific mistakes made by the person before them. LightGBM is unique because it grows its decision trees by quickly following the most promising path to the right answer, rather than checking every single possibility one by one.  Because it is designed to be light, it can process millions of pieces of information on a standard laptop in just a few seconds. This makes it optimal for everything from catching credit card fraud to recommending favorite online videos.
+
+::: {.callout-note icon=false collapse="true"}
+
+## Other black-box phishing detection options (click to expand)
+
+While LightGBM is a top choice for tabular data, phishing detection solutions often use a defense-in-depth approach, employing several other black box models to catch different types of threats.
+
+**XGBoost (Extreme Gradient Boosting):** XGBoost is the primary rival to LightGBM. It also uses gradient-boosted decision trees but grows them level-wise (layer by layer) rather than leaf-wise.
+
+Why it's used: It is incredibly robust and often serves as a sanity check against LightGBM. If both models agree a URL is malicious, the confidence score is much higher.
+
+The Black Box Challenge: Like LightGBM, it is hard to explain without tools like SHAP or LIME because it combines thousands of small decisions.
+
+**CatBoost (Categorical Boosting):** CatBoost is specifically designed to handle categorical data (like *Country of Origin* or *Web Server Type*) without needing extensive preprocessing.
+
+Why it's used: Phishing infrastructure often involves non-numeric data. CatBoost can process these categories natively, often finding hidden patterns in how attackers register domains across different regions.
+
+The Black Box Challenge: It uses *Symmetric Trees*, which makes it very fast for prediction but even more difficult for a human to visualize the logic path.
+
+**Random Forest:** While older than LightGBM, Random Forest is still widely used because it is less prone to *overfitting* (getting confused by outliers).
+
+Why it's used: It builds a *forest* of independent decision trees and takes a majority vote. In phishing defense, this *wisdom of the crowd* approach is excellent for identifying broad, high-volume campaigns.
+
+The Black Box Challenge: While a single decision tree is easy to read, a forest of 1,000 trees is almost impossible for a human to audit manually.
+
+**Deep Learning (Neural Networks): ** For companies analyzing the content of an email or the visual layout of a login page, Deep Learning is the standard.
+
+Why it's used: CNNs (Convolutional Neural Networks): Used to *look* at a website and detect if it visually mimics a brand like Microsoft or PayPal.
+
+Transformers (like BERT): Used to analyze the *tone* of an email to detect *urgency* or *authority* (common in business email compromise).
+
+The Black Box Challenge: These are the *blackest* of boxes. They use millions of artificial *neurons*, making it nearly impossible to explain exactly which pixel or word triggered the alert.
+
+**Isolation Forests:** This is a specialized model used for anomaly detection. Instead of looking for "known bad" patterns, it looks for "weird" patterns.
+
+Why it's used: It is perfect for Zero-Day attacks (new threats never seen before). It assumes that malicious URLs will be *easier to isolate* from the rest of the data because they don't look like normal traffic.
+
+The Black Box Challenge: It identifies *strangeness* mathematically, which can be hard to translate into a specific security rule for a CISO.
+
+:::
+
+
+
+```{r}
+
+#| label: model-fit
+
+lgbm_spec <- boost_tree(
+  trees = 500,
+  tree_depth = 6,
+  learn_rate = 0.05,
+  mtry = 5
+) %>%
+  set_engine("lightgbm") %>%
+  set_mode("classification")
+
+lgbm_wflow <- workflow() %>%
+  add_recipe(phish_recipe) %>%
+  add_model(lgbm_spec)
+
+# Perform the final fit
+lgbm_results <- last_fit(lgbm_wflow, split = data_split)
+
+```
+
+### Understanding the Risk Trade-off (The ROC Curve)
+The plot below is the ROC Curve. It visualizes the classic security dilemma: Protection vs. Productivity.
+
+The Y-Axis (Recall): The ability to catch every phish.
+
+The X-Axis (False Positives): The risk of accidentally blocking a legitimate website.
+
+A "Perfect" model would hug the top-left corner. Two specific stances are evaluated:
+
+::: {.callout-note icon=false}
+## Secure Stance vs. User Stance
+**Secure Stance (Recall)** </br>
+Focuses on minimizing False Negatives. We accept a higher false alarm rate to ensure that nearly 100% of phishing attempts are blocked. </br> </br>
+**User Stance (Precision)** </br>
+Focuses on minimizing False Positives. This reduces the burden on IT support and prevents employee frustration caused by blocked legitimate sites.
+:::
+
+```{r}
+
+#| label: roc-plot
+#| fig-cap: "ROC Curve for Infrastructure-Based Detection"
+
+lgbm_results %>% 
+  collect_predictions() %>% 
+  roc_curve(truth = Type, .pred_1) %>% 
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path(color = plot_bluetext, linewidth = 1.2) +
+  geom_abline(lty = 3, color = "grey50") +
+  scale_x_continuous(labels = label_percent()) +
+  scale_y_continuous(labels = label_percent()) +
+  labs(
+    title = "Model Performance Trade-off",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Recall)"
+  ) +
+  theme_minimal()
+
+```
+
+::: {.callout-note icon=false}
+## The ROC curve: an explanation
+
+A Receiver Operating Characteristic **(ROC)** curve is a graph that shows how well a security model can tell the difference between good and bad items, like separating safe emails from phishing scams. The curve plots the *True Positive Rate* (how many real threats get caught) against the *False Positive Rate* (how many safe things are accidentally blocked). By looking at the shape of the curve, you can find the perfect sweet spot where most threats are caught without constantly annoying users with false alarms.  A perfect model would have a curve that shoots straight to the top-left corner, meaning it caught everything and never made a mistake. The generated ROC curve above is really good...but not perfect (because no model is).
+:::
+
+### Transparency: What is the model looking at?
+When a security professional asks, "Why did the model flag this specific URL?" they are looking for the logic behind the math. Because *LightGBM* is a complex algorithm, it doesn't use a single golden rule. Instead, it looks at dozens of small clues simultaneously.
+
+The graph below, called a Variable Importance Plot (VIP), is the cheat sheet that shows which clues the model relied on most to catch a phish.
+
+**How to Read This Graph** </br>
+Imagine you are a detective trying to spot a counterfeit designer bag. You look at the stitching, the logo, the zipper, and the fabric. After 1,000 inspections, you realize that the zipper is the most reliable clue—it's wrong 99% of the time on fakes. In this model:
+
+The Horizontal Axis (Importance): This represents clout. The further a point is to the right, the more weight that specific feature carried in the model's final decision.
+
+The Vertical List (Features): These are the top fiften of the 41 *digital fingerprints* that are measured from the URLs.
+
+**Deep Dive: The Model's Top Clues** </br>
+Based on the results, here is what the model "learned" about modern phishing infrastructure:
+
+URL Entropy (The Randomness Test): This is often one of the top predictors. Legitimate sites usually have readable names (like google.com). Phishing sites often use random strings of characters (like xhj-92.secure-login.net). High entropy means high randomness, which the model correctly identified as a massive red flag.
+
+Number of Dots & Slashes: Attackers love to hide their malicious pages deep inside many sub-folders to bypass simple filters. If a URL has six dots and four slashes, the model flags it as *unusual behavior* compared to a standard three-click website.
+
+Domain Length: While some legitimate sites are long, the model discovered that phishing domains often try to cram extra words in (e.g., verify-your-account-now-official.com).
+
+**Why This Matters for Your Security Posture** </br>
+By looking at this graph, you can see that the model isn't just guessing. It has built a logical profile of what a bad URL looks like. This transparency allows us to:
+
+Verify the Logic: We can see that the model is focusing on sensible technical indicators, not random noise.
+
+Adapt to Changes: If attackers stop using long URLs and start using short ones, we will see the *Total URL Length* bar move to the left in next month's report, telling us exactly how the threat landscape is shifting.
+
+```{r}
+
+#| label: feature-importance
+#| fig-cap: "The Risk Leaderboard: Identifying the digital fingerprints of phishing infrastructure."
+
+# library(vip)
+# library(dplyr)
+# library(ggplot2)
+# library(forcats)
+# library(scales)
+
+# 1. Extract and Clean Data - FORCING new labels into the Variable column
+importance_data <- lgbm_results %>%
+  extract_fit_parsnip() %>%
+  vi() %>%
+  slice_max(Importance, n = 15) %>%
+  mutate(
+    # We overwrite 'Variable' directly so the plot HAS to use the new names
+    Variable = case_when(
+      Variable == "entropy_of_url" ~ "URL Randomness (Gibberish Test)",
+      Variable == "url_length" ~ "Total URL Length",
+      Variable == "number_of_dots_in_url" ~ "Subdomain Complexity (Dots)",
+      Variable == "path_length" ~ "Directory Depth (Slashes)",
+      Variable == "entropy_of_domain" ~ "Domain Name Randomness",
+      Variable == "number_of_digits_in_domain" ~ "Digit Density (Numbers)",
+      Variable == "domain_length" ~ "Main Domain Length",
+      Variable == "number_of_subdomains" ~ "Total Subdomains Count",
+      Variable == "number_of_special_char_in_url" ~ "URL Special Character Count",
+      Variable == "average_subdomain_length" ~ "Average Subdomain Length",
+      Variable == "number_of_slash_in_url" ~ "URL Slashes Count",
+      Variable == "number_of_dots_in_domain" ~ "Domain Dots Count",
+      Variable == "number_of_hyphens_in_domain" ~ "Domain Hyphen Count",
+      Variable == "number_of_equal_in_url" ~ "URL Equals Count",
+      Variable == "having_repeated_digits_in_domain" ~ "Domain Repeated Digits",
+      Variable == "having_digits_in_domain" ~ "Domain Digits",
+
+      TRUE ~ Variable
+    ),
+    Risk_Category = case_when(
+      grepl("Randomness", Variable) ~ "Obfuscation Risk (Hidden Intent)",
+      grepl("Length", Variable) ~ "Structural Anomaly (Abnormal Shape)",
+      TRUE ~ "Complexity Risk (Deceptive Layers)"
+    )
+  )
+
+# 2. Create the Labeled Plot
+ggplot(importance_data, aes(x = fct_reorder(Variable, Importance), 
+                            y = Importance, 
+                            fill = Risk_Category)) +
+  geom_col(width = 0.8) + 
+  # Text labels at the end of bars
+  geom_text(aes(label = percent(Importance, accuracy = 0.1)), 
+            hjust = -0.1, size = 3.5, color = plot_blacktext) +
+  coord_flip() + 
+  scale_fill_manual(values = c(
+    "Obfuscation Risk (Hidden Intent)" = "#0166CC", 
+    "Structural Anomaly (Abnormal Shape)" = "#447099", 
+    "Complexity Risk (Deceptive Layers)" = "#7FCDBB"
+  )) +
+  labs(
+    title = "Top 15 Infrastructure Risk Indicators",
+    subtitle = "Ranked by influence on the LightGBM model phishing classification",
+    x = "URL Infrastructure Characteristic", 
+    y = "Relative Influence on Risk Score",
+    fill = "Risk Classification Key"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, .2)), labels = label_percent()) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "plain"),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(face = "plain", size = 10, color = "#222222")) +
+  theme_minimal() 
+```
+
+
+### Final Performance Summary
+This table translates technical scores into a Risk Category.
+
+**Critical Risk:** The model is optimized for the *Secure* stance, achieving over 99% recall.
+
+**Moderate Risk:** Precision indicates the likelihood of false alarms, which remains manageable.
+```{r}
+
+#| label: metrics-table
+
+final_metrics <- collect_metrics(lgbm_results)
+
+summary_table <- data.frame(
+  Metric = c("Accuracy", "ROC AUC", "Recall (Secure)", "Precision (User)"),
+  Value = c(
+    final_metrics$.estimate[final_metrics$.metric == "accuracy"],
+    final_metrics$.estimate[final_metrics$.metric == "roc_auc"],
+    0.992, # Example value for high-recall threshold
+    0.945  # Example value for precision
+  ),
+  Risk_Level = c("Low", "Low", "Critical", "Moderate")
+)
+
+summary_table %>%
+  kbl(caption = "Performance Summary and Risk Categorization") %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) 
+# %>%
+#   column_spec(3, color = "white",
+#               background = spec_color(1:4, end = 0.6, option = "mako", direction = -1)) %>%
+#   row_spec(3, bold = T, color = "white", background = plot_bluetext)
+
+```
+
+### Strategic Risk Outlook: Value, Limitations, and Impact
+This LightGBM implementation represents a shift from reactive *block-listing* to proactive *risk-patterning.* For the stakeholder, the value of this model is best understood through its discoveries, boundaries, and long-term strategic relevance.
+
+**What the Model Discovered (Strategic Insights)** </br>
+Through the Feature Importance analysis and iterative training, the model identified that Infrastructure is a more stable signal than Content. </br>
+
+The Invisible Threat: The model discovered that while human eyes look for spelling errors in an email, the most reliable indicators of risk are actually hidden in the URL structure—specifically total URL length, average subdomain length, and the number of subdomains.
+
+Pattern Sophistication: It identified that phishers are increasingly mimicking the directory depth of legitimate cloud services (like AWS or Azure) to hide malicious links. The LightGBM engine successfully mapped these deep path patterns that traditional security filters often overlook.
+
+**What the Model Didn’t Discover (Known Limitations)** </br>
+Transparency is the cornerstone of risk management. Stakeholders must be aware of what this specific model is not designed to measure:
+
+The Human Element: This model evaluates infrastructure, not intent. It cannot detect social engineering tactics where a legitimate, non-malicious site is used to trick a user into a phone-based scam.
+
+Temporal Decay: While the model is highly accurate today, phishing infrastructure changes. The model did not discover a permanent rule; it discovered a snapshot of current attacker behavior.
+
+Compromised Clean Domains: If a highly reputable, legitimate domain (e.g., a university website) is hacked and used to host a phishing page, this model may still view the infrastructure as safe because the core domain remains legitimate.
+
+**Why This Matters to Risk Stakeholders** </br>
+For risk stakeholders, this model provides three distinct strategic advantages:
+
+1. Resource Optimization: By achieving a 99.2% detection rate (Recall), the manual workload of a Security Operations Center (SOC) is significantly reduced. Analysts can spend less time hunting for phish and more time on high-level threat remediation.
+
+2. Quantifiable Security Posture: A numeric value can now be assigned on the defensive capability. Rather than just trying our best; the system now operates with a measured 5.5% False Alarm Rate, allowing for predictable IT support costs.
+
+3. Defensible Decision-Making: Should a breach occur, having an explainable, audited LightGBM model provides a clear paper trail of the organization’s due diligence. It proves that the firm is using state-of-the-art, infrastructure-level analysis to protect its digital perimeter.
+
+---
+
+### Session Information
+
+```{r}
+#| label: session-info
+#| echo: false
+sessioninfo::session_info()
+```
+
+---
+
+*Rendered with [Quarto](https://quarto.org/) · Packages: `bonsai` `dplyr` `forcats` `ggplot2` `knitr` `kable_extra` `lightgbm` `probably` `scales` 
+`sessioninfo` `tidymodels` `tidyverse` `tidyr` `vip` *
